@@ -2,6 +2,13 @@ name: Build release artifacts
 
 on:
   workflow_dispatch:
+  # Any Cargo.toml push is a candidate; the `version` job below decides whether
+  # the package version actually moved past the newest tag.
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
 
 permissions:
   contents: read
@@ -12,8 +19,38 @@ env:
   RUSTFLAGS: -C debuginfo=0
 
 jobs:
+  version:
+    name: Read package version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      tag: ${{ steps.read.outputs.tag }}
+      released: ${{ steps.read.outputs.released }}
+    steps:
+      - name: Check out source (actions/checkout v7.0.1)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Resolve version and skip work for an already released version
+        id: read
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --no-deps --format-version 1 --quiet \
+            | jq -r '.packages[] | select(.name == "protonpass-to-bitwarden") | .version')"
+          test -n "$version"
+          tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "::notice::package version $version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "::notice::$tag already exists, this run builds artifacts only"
+            echo "released=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$tag is new, this run will publish a release"
+            echo "released=false" >> "$GITHUB_OUTPUT"
+          fi
+
   verify:
     name: Verify (${{ matrix.os }})
+    needs: version
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -44,6 +81,7 @@ jobs:
 
   minimum-rust:
     name: Verify minimum Rust 1.88.0
+    needs: version
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source (actions/checkout v7.0.1)
@@ -55,6 +93,7 @@ jobs:
 
   dependency-audit:
     name: Verify dependency policy
+    needs: version
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source (actions/checkout v7.0.1)
@@ -75,6 +114,7 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     needs:
+      - version
       - verify
       - minimum-rust
       - dependency-audit
@@ -177,3 +217,52 @@ jobs:
           path: ${{ matrix.artifact }}.tar.gz
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    name: Publish GitHub release ${{ needs.version.outputs.tag }}
+    needs:
+      - version
+      - verify
+      - minimum-rust
+      - dependency-audit
+      - build
+    # Publishes only for a version that has no tag yet, so a repeat manual
+    # dispatch rebuilds artifacts without touching the existing release.
+    if: >-
+      always() && needs.version.result == 'success'
+      && needs.version.outputs.released == 'false'
+      && needs.build.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifacts (actions/download-artifact v8.0.2)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          path: dist
+          pattern: protonpass-to-bitwarden-*
+          merge-multiple: false
+      - name: Fail if an expected artifact is missing
+        run: |
+          set -euo pipefail
+          for artifact in \
+            protonpass-to-bitwarden-linux-x86_64 \
+            protonpass-to-bitwarden-macos-x86_64 \
+            protonpass-to-bitwarden-macos-aarch64 \
+            protonpass-to-bitwarden-windows-x86_64; do
+            test -f "dist/$artifact/$artifact.tar.gz" \
+              || { echo "::error::missing $artifact"; exit 1; }
+          done
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes \
+            --target "$GITHUB_SHA" \
+            dist/*/*.tar.gz \
+            dist/*/SHA256SUMS \
+            dist/*/BUILDINFO.txt
