@@ -127,18 +127,26 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact: protonpass-to-bitwarden-linux-x86_64
             executable: protonpass-to-bitwarden
+            rustflags: -C debuginfo=0
           - os: macos-14
             target: x86_64-apple-darwin
             artifact: protonpass-to-bitwarden-macos-x86_64
             executable: protonpass-to-bitwarden
+            rustflags: -C debuginfo=0
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: protonpass-to-bitwarden-macos-aarch64
             executable: protonpass-to-bitwarden
+            rustflags: -C debuginfo=0
           - os: windows-2022
             target: x86_64-pc-windows-msvc
             artifact: protonpass-to-bitwarden-windows-x86_64
             executable: protonpass-to-bitwarden.exe
+            # The MSVC linker embeds a timestamp and a PDB GUID unless /Brepro is
+            # given, so without this the reproducible-binary check never passes.
+            rustflags: -C debuginfo=0 -C link-arg=/Brepro
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - name: Check out source (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -165,7 +173,18 @@ jobs:
           cargo build --release --locked --target "${{ matrix.target }}"
       - name: Verify reproducible binary
         shell: bash
-        run: cmp -s "dist/${{ matrix.executable }}" "target/${{ matrix.target }}/release/${{ matrix.executable }}"
+        run: |
+          set -euo pipefail
+          staged="dist/${{ matrix.executable }}"
+          rebuilt="target/${{ matrix.target }}/release/${{ matrix.executable }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            hash() { sha256sum "$1" | cut -d' ' -f1; }
+          else
+            hash() { shasum -a 256 "$1" | cut -d' ' -f1; }
+          fi
+          echo "staged  $(hash "$staged")  $(wc -c < "$staged") bytes"
+          echo "rebuilt $(hash "$rebuilt")  $(wc -c < "$rebuilt") bytes"
+          cmp -s "$staged" "$rebuilt"
       - name: Record build provenance
         shell: bash
         run: |
