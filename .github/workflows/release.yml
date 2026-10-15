@@ -282,6 +282,4 @@ jobs:
             --title "$TAG" \
             --generate-notes \
             --target "$GITHUB_SHA" \
-            dist/*/*.tar.gz \
-            dist/*/SHA256SUMS \
-            dist/*/BUILDINFO.txt
+            dist/*/*.tar.gz
