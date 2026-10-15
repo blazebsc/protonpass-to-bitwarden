@@ -356,6 +356,11 @@ struct ProtonVaultInput {
     items: Vec<ProtonItem>,
     #[serde(rename = "display", default)]
     _display: Option<ProtonVaultDisplay>,
+    // Proton Pass 1.42 moved folders under the vault instead of encoding them
+    // in the vault name. Accepted and dropped: Bitwarden folders are still
+    // derived from the vault name path.
+    #[serde(rename = "folders", default)]
+    _folders: Option<IgnoredAny>,
 }
 
 #[derive(Deserialize)]
@@ -429,6 +434,9 @@ struct ProtonItemInput {
     files: Vec<String>,
     #[serde(rename = "shareCount", default)]
     _share_count: Option<u64>,
+    // See ProtonVaultInput::_folders. Accepted so Proton Pass 1.42 items parse.
+    #[serde(rename = "folderId", default)]
+    _folder_id: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for ProtonItem {

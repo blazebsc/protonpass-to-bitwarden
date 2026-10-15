@@ -824,6 +824,39 @@ fn rejects_symlink_and_nonregular_input_endpoints() {
     ));
 }
 
+#[test]
+fn accepts_proton_pass_1_42_vault_folders_and_item_folder_id() {
+    // Proton Pass 1.42 added `vaults[].folders` and `items[].folderId` to the
+    // export. Both are accepted and dropped; Bitwarden folders still come from
+    // the vault name path. See github.com/zimm3rmann/protonpass-to-bitwarden/issues/1.
+    let export = write_raw(
+        br#"{"version":"1.42.0","userId":"u","vaults":{"v":{"name":"Personal","folders":[
+            {"folderId":"f1","name":"Work","parentFolderId":null},
+            {"folderId":"f2","name":"Work/Bank","parentFolderId":"f1"}],
+            "items":[{"itemId":"i1","shareId":"s1","state":1,"contentFormatVersion":1,
+            "folderId":"f2","data":{"metadata":{"name":"n"},"type":"login",
+            "content":{"itemUsername":"ada"}}}]}}}"#,
+    );
+
+    let loaded = load_export(export.path(), InputLimits::default()).unwrap();
+
+    assert_eq!(loaded.export.vaults["v"].name, "Personal");
+    assert_eq!(loaded.export.vaults["v"].items.len(), 1);
+}
+
+#[test]
+fn still_rejects_fields_outside_the_known_1_42_schema() {
+    // deny_unknown_fields stays on: only the two known additions are accepted.
+    let export = write_raw(
+        br#"{"version":"1.42.0","vaults":{"v":{"name":"Personal","surprise":1,"items":[]}}}"#,
+    );
+
+    assert!(matches!(
+        load_export(export.path(), InputLimits::default()),
+        Err(AppError::InvalidJson { .. })
+    ));
+}
+
 fn assert_unsafe_archive_with_limits(path: &Path, limits: InputLimits) {
     assert!(matches!(
         load_export(path, limits),

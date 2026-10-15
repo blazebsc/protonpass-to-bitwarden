@@ -11,5 +11,6 @@ All notable changes will be documented here. This project follows semantic versi
 - Added redacted migration reports, strict-mode outcomes, bounded parsing, hostile-ZIP checks, duplicate credential detection, and private atomic output handling.
 - Added Linux, macOS, and Windows CI; Rust 1.88 compatibility checking; dependency auditing; independent passkey validation; and a pinned Bitwarden importer bridge.
 - Added support for Proton item content format versions through 7.
+- Added support for the Proton Pass 1.42 export schema, which adds `vaults[].folders` and `items[].folderId`. Both are accepted and dropped; Bitwarden folders are still derived from the vault name path.
 
 This release is a public beta. Preserve the source vault and verify every important credential after migration.
