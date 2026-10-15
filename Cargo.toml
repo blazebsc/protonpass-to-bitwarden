@@ -1,5 +1,7 @@
 [package]
 name = "protonpass-to-bitwarden"
+# The release workflow tags a GitHub release as v<this version>. Bumping it and
+# pushing to main publishes it; a push that leaves it alone only builds.
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
