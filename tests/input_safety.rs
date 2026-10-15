@@ -519,7 +519,7 @@ fn enforces_versions_folder_nested_and_projected_output_limits() {
     );
     assert!(matches!(
         load_export(bad_content_version.path(), InputLimits::default()),
-        Err(AppError::InvalidExport)
+        Err(AppError::InvalidExport { .. })
     ));
 
     let folder = write_raw(br#"{"version":"1","vaults":{"v":{"name":"one/two","items":[]}}}"#);
@@ -529,7 +529,7 @@ fn enforces_versions_folder_nested_and_projected_output_limits() {
     };
     assert!(matches!(
         load_export(folder.path(), folder_limits),
-        Err(AppError::InvalidExport)
+        Err(AppError::InvalidExport { .. })
     ));
 
     let nested = write_raw(
@@ -596,7 +596,7 @@ fn rejects_empty_folder_components_without_rejecting_trimmed_leading_slashes() {
         let input = write_raw(&bytes);
         assert!(matches!(
             load_export(input.path(), InputLimits::default()),
-            Err(AppError::InvalidExport)
+            Err(AppError::InvalidExport { .. })
         ));
     }
 
@@ -799,7 +799,7 @@ fn rejects_unmodeled_passkey_arrays_in_future_item_types() {
 
     assert!(matches!(
         load_export(input.path(), InputLimits::default()),
-        Err(AppError::InvalidExport)
+        Err(AppError::InvalidExport { .. })
     ));
 }
 
@@ -855,6 +855,46 @@ fn still_rejects_fields_outside_the_known_1_42_schema() {
         load_export(export.path(), InputLimits::default()),
         Err(AppError::InvalidJson { .. })
     ));
+}
+
+#[test]
+fn names_the_unsupported_structure_instead_of_a_generic_error() {
+    // One message covered five unrelated conditions, which sent issue #1 looking
+    // for a root-schema change that was never the cause.
+    let reason = |json: &str| {
+        // LoadedExport is not Debug: it holds vault secrets, so never format one.
+        match load_export(write_raw(json.as_bytes()).path(), InputLimits::default()).err() {
+            Some(AppError::InvalidExport { reason }) => reason,
+            _ => panic!("expected InvalidExport"),
+        }
+    };
+
+    assert_eq!(
+        reason(r#"{"vaults":{"":{"name":"v","items":[]}}}"#),
+        "a vault has an empty id"
+    );
+    assert_eq!(
+        reason(r#"{"vaults":{"v":{"name":"a//b","items":[]}}}"#),
+        "a vault name has an empty folder component"
+    );
+    assert_eq!(
+        reason(
+            r#"{"vaults":{"v":{"name":"v","items":[{"itemId":"i","state":9,"data":{"type":"note","content":{}}}]}}}"#
+        ),
+        "an item has an unknown state"
+    );
+    assert_eq!(
+        reason(
+            r#"{"vaults":{"v":{"name":"v","items":[{"itemId":"i","state":1,"contentFormatVersion":8,"data":{"type":"note","content":{}}}]}}}"#
+        ),
+        "an item uses a content format version above 7, which is not reviewed yet; re-export from Proton Pass or convert the items to a reviewed format version"
+    );
+    assert_eq!(
+        reason(
+            r#"{"vaults":{"v":{"name":"v","items":[{"itemId":"i","state":1,"data":{"type":"note","content":{}}},{"itemId":"i","state":1,"data":{"type":"note","content":{}}}]}}}"#
+        ),
+        "a vault repeats an itemId"
+    );
 }
 
 fn assert_unsafe_archive_with_limits(path: &Path, limits: InputLimits) {

@@ -1619,8 +1619,15 @@ fn validate_export(
         if vault_id.len() > limits.max_vault_id_bytes {
             return Err(AppError::InputTooLarge);
         }
-        if vault_id.is_empty() || vault.name.len() > limits.max_vault_name_bytes {
-            return Err(AppError::InvalidExport);
+        if vault_id.is_empty() {
+            return Err(AppError::InvalidExport {
+                reason: "a vault has an empty id",
+            });
+        }
+        if vault.name.len() > limits.max_vault_name_bytes {
+            return Err(AppError::InvalidExport {
+                reason: "a vault name is too long",
+            });
         }
         account_folder_prefixes(
             &vault.name,
@@ -1660,12 +1667,27 @@ fn validate_export(
             } else {
                 1
             };
-            if item.item_id.is_empty()
-                || !item_ids.insert(item.item_id.as_str())
-                || !matches!(item.state, 1 | 2)
-                || item.content_format_version > 7
-            {
-                return Err(AppError::InvalidExport);
+            if item.item_id.is_empty() {
+                return Err(AppError::InvalidExport {
+                    reason: "an item has an empty itemId",
+                });
+            }
+            if !item_ids.insert(item.item_id.as_str()) {
+                return Err(AppError::InvalidExport {
+                    reason: "a vault repeats an itemId",
+                });
+            }
+            if !matches!(item.state, 1 | 2) {
+                return Err(AppError::InvalidExport {
+                    reason: "an item has an unknown state",
+                });
+            }
+            if item.content_format_version > 7 {
+                return Err(AppError::InvalidExport {
+                    reason: "an item uses a content format version above 7, which is not \
+                             reviewed yet; re-export from Proton Pass or convert the items \
+                             to a reviewed format version",
+                });
             }
             nested_elements = nested_elements
                 .checked_add(count_nested_elements(item))
@@ -1688,7 +1710,9 @@ fn validate_export(
         }
     }
     if modeled_passkeys != preflight_passkeys {
-        return Err(AppError::InvalidExport);
+        return Err(AppError::InvalidExport {
+            reason: "the export carries passkeys in a place this build does not model",
+        });
     }
     ensure_projected_output(
         projected_bytes,
@@ -1723,11 +1747,20 @@ fn account_folder_prefixes(
     let mut node = root;
     for component in normalized.split('/') {
         if component.is_empty() {
-            return Err(AppError::InvalidExport);
+            return Err(AppError::InvalidExport {
+                reason: "a vault name has an empty folder component",
+            });
         }
         depth = depth.checked_add(1).ok_or(AppError::InputTooLarge)?;
-        if depth > limits.max_folder_depth || component.len() > limits.max_folder_component_bytes {
-            return Err(AppError::InvalidExport);
+        if depth > limits.max_folder_depth {
+            return Err(AppError::InvalidExport {
+                reason: "a vault name is nested deeper than the folder limit",
+            });
+        }
+        if component.len() > limits.max_folder_component_bytes {
+            return Err(AppError::InvalidExport {
+                reason: "a vault name has a folder component that is too long",
+            });
         }
         if depth > 1 {
             escaped_prefix_bytes = escaped_prefix_bytes

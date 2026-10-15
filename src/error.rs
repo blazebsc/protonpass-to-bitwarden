@@ -33,8 +33,9 @@ pub enum AppError {
     MissingOrAmbiguousData,
     #[error("the Proton Pass JSON is malformed at line {line}, column {column}")]
     InvalidJson { line: usize, column: usize },
-    #[error("the Proton Pass export has an unsupported top-level structure")]
-    InvalidExport,
+    // The reason is always a fixed string: it must never echo source text.
+    #[error("the Proton Pass export has an unsupported structure: {reason}")]
+    InvalidExport { reason: &'static str },
     #[error("input, output, and report paths must be distinct")]
     ConflictingPaths,
     #[error("the destination already exists; use --force only after checking the path")]
